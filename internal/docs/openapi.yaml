@@ -1,0 +1,470 @@
+openapi: 3.0.3
+info:
+  title: YIN 即刻收网关
+  version: 0.1.0
+  description: |
+    阶段一的管理端与创作者门户内部 API。不是给创作者的公开商户 OpenAPI。
+    支付宝调用由服务端适配器完成，方法名与 alipay.aipay.nowpay.* 对齐。
+    金额在本 API 中以「分」整数返回；写入价格与抽成时使用元或百分数字符串，避免浮点。
+servers:
+  - url: /
+tags:
+  - name: auth
+  - name: admin
+  - name: creator
+  - name: mock
+paths:
+  /api/health:
+    get:
+      tags: [auth]
+      summary: 健康检查
+      responses:
+        "200":
+          description: 数据库可用
+  /api/openapi.yaml:
+    get:
+      tags: [auth]
+      summary: 本文件
+      responses:
+        "200":
+          description: OpenAPI YAML
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: 登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, portal]
+              properties:
+                email: {type: string}
+                password: {type: string}
+                portal: {type: string, enum: [admin, creator]}
+      responses:
+        "200": {description: 设置 HttpOnly cookie yin_session}
+        "401": {description: 邮箱或密码不正确}
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: 退出
+      responses:
+        "200": {description: 会话删除}
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: 当前登录身份
+      responses:
+        "200": {description: actor}
+        "401": {description: 未登录}
+  /api/admin/dashboard:
+    get:
+      tags: [admin]
+      summary: 待办与累计
+      responses:
+        "200": {description: dashboard}
+  /api/admin/creators:
+    get:
+      tags: [admin]
+      summary: 创作者列表
+      responses:
+        "200": {description: creators}
+    post:
+      tags: [admin]
+      summary: 建档并开通门户账号
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, portal_email, portal_password]
+              properties:
+                name: {type: string}
+                contact_email: {type: string}
+                phone: {type: string}
+                notes: {type: string}
+                portal_email: {type: string}
+                portal_name: {type: string}
+                portal_password: {type: string}
+      responses:
+        "201": {description: creator}
+  /api/admin/creators/{id}:
+    get:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": {description: creator}
+    put:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                contact_email: {type: string}
+                phone: {type: string}
+                notes: {type: string}
+                status: {type: string, enum: [active, suspended]}
+      responses:
+        "200": {description: creator}
+  /api/admin/creators/{id}/password:
+    post:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: {type: string}
+      responses:
+        "200": {description: ok}
+  /api/admin/projects:
+    get:
+      tags: [admin]
+      parameters:
+        - name: creator_id
+          in: query
+          schema: {type: string}
+      responses:
+        "200": {description: projects}
+    post:
+      tags: [admin]
+      summary: 为创作者创建项目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectWrite"
+      responses:
+        "201": {description: project}
+  /api/admin/projects/{id}:
+    get:
+      tags: [admin]
+      summary: 项目、席位、购买
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": {description: desk}
+    put:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectWrite"
+      responses:
+        "200": {description: project}
+  /api/admin/projects/{id}/seats:
+    post:
+      tags: [admin]
+      summary: 按当前买断价新增一个支付宝席位
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pay_now: {type: boolean, description: 为 true 时立刻登记买断}
+                channel: {type: string, enum: [admin_recorded, mock_checkout]}
+      responses:
+        "201": {description: seat}
+  /api/admin/seats/{id}/pay:
+    post:
+      tags: [admin]
+      summary: 登记席位买断（模拟或线下）
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": {description: seat}
+  /api/admin/seats/{id}/bind:
+    post:
+      tags: [admin]
+      summary: charge.query，必要时 charge.initialize
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": {description: seat，含 configuration_qr_code}
+  /api/admin/seats/{id}/bind/complete:
+    post:
+      tags: [admin]
+      summary: 模拟创作者在托管页完成授权与档位
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                price_yuan: {type: string, description: 空则使用项目上的顾客售价}
+                logon_id: {type: string}
+      responses:
+        "200": {description: seat bound}
+  /api/admin/seats/{id}/capability:
+    post:
+      tags: [admin]
+      summary: charge.modify ENABLE 或 DISABLE
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: {type: string, enum: [ENABLE, DISABLE]}
+      responses:
+        "200": {description: seat}
+  /api/admin/seats/{id}/purchases:
+    post:
+      tags: [admin]
+      summary: purchase.create 后立刻模拟顾客付款并入账抽成
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                external_buyer_id: {type: string}
+      responses:
+        "201": {description: purchase}
+  /api/admin/pricing:
+    get:
+      tags: [admin]
+      responses:
+        "200": {description: catalog}
+    put:
+      tags: [admin]
+      summary: 更新永久买断席位价。时长与额度行只读
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_yuan]
+              properties:
+                name: {type: string}
+                amount_yuan: {type: string}
+      responses:
+        "200": {description: catalog}
+  /api/admin/commission:
+    get:
+      tags: [admin]
+      responses:
+        "200": {description: settings，单位为基点}
+    put:
+      tags: [admin]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rate_percent, alipay_jsapi_fee_percent, alipay_nowpay_fee_percent]
+              properties:
+                rate_percent: {type: string}
+                alipay_jsapi_fee_percent: {type: string}
+                alipay_nowpay_fee_percent: {type: string}
+      responses:
+        "200": {description: settings}
+  /api/admin/purchases:
+    get:
+      tags: [admin]
+      parameters:
+        - name: project_id
+          in: query
+          schema: {type: string}
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200": {description: purchases}
+  /api/admin/ledger:
+    get:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200": {description: ledger entries}
+  /api/admin/settlements:
+    post:
+      tags: [admin]
+      summary: 把已入账未结算的平台抽成做模拟结算
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: {type: string}
+      responses:
+        "201": {description: settlement batch}
+        "409": {description: nothing_to_settle}
+  /api/admin/audit:
+    get:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200": {description: audit}
+  /api/admin/webhooks:
+    get:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200": {description: deliveries}
+  /api/admin/password:
+    put:
+      tags: [admin]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: {type: string}
+                new_password: {type: string}
+      responses:
+        "200": {description: ok}
+  /api/creator/projects:
+    get:
+      tags: [creator]
+      responses:
+        "200": {description: own projects}
+  /api/creator/projects/{id}:
+    get:
+      tags: [creator]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": {description: desk}
+  /api/creator/projects/{id}/endpoints:
+    put:
+      tags: [creator]
+      summary: 只改回跳地址和异步通知地址
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                callback_url: {type: string}
+                notify_url: {type: string}
+      responses:
+        "200": {description: project}
+  /api/creator/projects/{id}/seats:
+    post:
+      tags: [creator]
+      summary: 按当前价格买断一个新席位（模拟付给 YIN）
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "201": {description: paid seat}
+  /api/creator/seats/{id}/bind:
+    post:
+      tags: [creator]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": {description: seat}
+  /api/creator/seats/{id}/bind/complete:
+    post:
+      tags: [creator]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": {description: seat}
+  /api/creator/purchases:
+    get:
+      tags: [creator]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200": {description: purchases}
+  /api/mock/alipay/tickets/{ticket}:
+    get:
+      tags: [mock]
+      summary: 模拟支付宝托管页内容
+      parameters:
+        - name: ticket
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: ticket view}
+  /api/mock/alipay/tickets/{ticket}/complete:
+    post:
+      tags: [mock]
+      summary: 模拟创作者在托管配置页授权
+      parameters:
+        - name: ticket
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: seat}
+  /api/mock/alipay/tickets/{ticket}/pay:
+    post:
+      tags: [mock]
+      summary: 模拟顾客在托管购买页付款
+      parameters:
+        - name: ticket
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: purchase}
+components:
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, maximum: 200}
+  schemas:
+    ProjectWrite:
+      type: object
+      required: [creator_id, name, customer_price_yuan]
+      properties:
+        creator_id: {type: string}
+        name: {type: string}
+        status: {type: string, enum: [active, suspended]}
+        callback_url: {type: string, description: 支付宝页面回跳，不是异步通知}
+        notify_url: {type: string, description: 本网关 purchase.paid / charge.enabled 的投递地址}
+        billing_mode: {type: string, enum: [ONE_TIME], description: 阶段一只接受 ONE_TIME}
+        seat_price_yuan: {type: string, nullable: true, description: 空字符串表示沿用席位目录价}
+        customer_price_yuan: {type: string, description: 顾客永久买断的预填价，单位元}
+        commission_percent: {type: string, nullable: true, description: 空字符串表示沿用全局抽成}
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: {type: string}
+            message: {type: string}
